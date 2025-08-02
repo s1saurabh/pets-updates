@@ -1,88 +1,108 @@
 <script lang="ts">
-    import { onMount } from "svelte";
+    import { onMount, onDestroy } from "svelte";
 
     interface Dog {
         id: number;
         name: string;
         breed: string;
     }
+    interface Breed {
+        id: number;
+        name: string;
+    }
 
-    export let dogs: Dog[] = [];
+    let dogs: Dog[] = [];
+    let breeds: Breed[] = [];
+    let selectedBreed: number | null = null;
+    let onlyAvailable = false;
     let loading = true;
     let error: string | null = null;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const fetchBreeds = async () => {
+        try {
+            const res = await fetch("/api/breeds");
+            if (res.ok) {
+                breeds = await res.json();
+            }
+        } catch (e) {
+            // ignore breed fetch errors for now
+        }
+    };
 
     const fetchDogs = async () => {
         loading = true;
+        error = null;
         try {
-            const response = await fetch('/api/dogs');
-            if(response.ok) {
-                dogs = await response.json();
+            let url = "/api/dogs";
+            const params: string[] = [];
+            if (selectedBreed) params.push(`breed_id=${selectedBreed}`);
+            if (onlyAvailable) params.push("status=AVAILABLE");
+            if (params.length) url += "?" + params.join("&");
+            const res = await fetch(url);
+            if (res.ok) {
+                dogs = await res.json();
             } else {
-                error = `Failed to fetch data: ${response.status} ${response.statusText}`;
+                error = "Failed to fetch dogs";
             }
-        } catch (err) {
-            error = `Error: ${err instanceof Error ? err.message : String(err)}`;
+        } catch (e) {
+            error = "Error fetching dogs";
         } finally {
             loading = false;
         }
     };
 
-    onMount(() => {
+    const handleBreedChange = (e: Event) => {
+        selectedBreed = +(e.target as HTMLSelectElement).value || null;
         fetchDogs();
+    };
+
+    const handleAvailableChange = (e: Event) => {
+        onlyAvailable = (e.target as HTMLInputElement).checked;
+        fetchDogs();
+    };
+
+    onMount(() => {
+        fetchBreeds();
+        fetchDogs();
+        intervalId = setInterval(fetchDogs, 5000);
+    });
+
+    onDestroy(() => {
+        if (intervalId) clearInterval(intervalId);
     });
 </script>
 
-<div>
-    <h2 class="text-2xl font-medium mb-6 text-slate-100">Available Dogs</h2>
-    
-    {#if loading}
-        <!-- loading animation -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {#each Array(6) as _, i}
-                <div class="bg-slate-800/60 backdrop-blur-sm rounded-xl overflow-hidden shadow-lg border border-slate-700/50">
-                    <div class="p-6">
-                        <div class="animate-pulse">
-                            <div class="h-6 bg-slate-700 rounded w-3/4 mb-3"></div>
-                            <div class="h-4 bg-slate-700 rounded w-1/2 mb-4"></div>
-                            <div class="h-4 bg-slate-700 rounded w-1/4 mt-6"></div>
-                        </div>
-                    </div>
-                </div>
+<div class="flex items-center gap-4 mb-6">
+    <label class="text-slate-300">
+        Breed:
+        <select class="bg-slate-700 text-slate-100 rounded px-2 py-1 ml-2" on:change={handleBreedChange} bind:value={selectedBreed}>
+            <option value="">All</option>
+            {#each breeds as breed}
+                <option value={breed.id}>{breed.name}</option>
             {/each}
-        </div>
-    {:else if error}
-        <!-- error display -->
-        <div class="text-center py-12 bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-700">
-            <p class="text-red-400">{error}</p>
-        </div>
-    {:else if dogs.length === 0}
-        <!-- no dogs found -->
-        <div class="text-center py-12 bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-700">
-            <p class="text-slate-300">No dogs available at the moment.</p>
-        </div>
-    {:else}
-        <!-- dog list -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {#each dogs as dog (dog.id)}
-                <a 
-                    href={`/dog/${dog.id}`} 
-                    class="group block bg-slate-800/60 backdrop-blur-sm rounded-xl overflow-hidden shadow-lg border border-slate-700/50 hover:border-blue-500/50 hover:shadow-blue-500/10 hover:shadow-xl transition-all duration-300 hover:translate-y-[-6px]"
-                >
-                    <div class="p-6 relative">
-                        <div class="absolute inset-0 bg-gradient-to-r from-blue-600/10 to-purple-600/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                        <div class="relative z-10">
-                            <h3 class="text-xl font-semibold text-slate-100 mb-2 group-hover:text-blue-400 transition-colors">{dog.name}</h3>
-                            <p class="text-slate-400 mb-4">{dog.breed}</p>
-                            <div class="mt-4 text-sm text-blue-400 font-medium flex items-center">
-                                <span>View details</span>
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 ml-1 transform transition-transform duration-300 group-hover:translate-x-2" viewBox="0 0 20 20" fill="currentColor">
-                                    <path fill-rule="evenodd" d="M12.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                </svg>
-                            </div>
-                        </div>
-                    </div>
-                </a>
-            {/each}
-        </div>
-    {/if}
+        </select>
+    </label>
+    <label class="flex items-center text-slate-300">
+        <input type="checkbox" class="mr-2 accent-green-500" on:change={handleAvailableChange} bind:checked={onlyAvailable} />
+        Only show available dogs
+    </label>
 </div>
+
+{#if loading}
+    <div class="text-slate-400">Loading...</div>
+{:else if error}
+    <div class="text-red-400">{error}</div>
+{:else if dogs.length === 0}
+    <div class="text-slate-400">No dogs found.</div>
+{:else}
+    <ul class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {#each dogs as dog}
+            <li class="bg-slate-800/70 border border-slate-700 rounded-xl p-4 text-slate-100">
+                <div class="font-bold text-lg">{dog.name}</div>
+                <div class="text-slate-400">{dog.breed}</div>
+                <!-- Add more dog info as needed -->
+            </li>
+        {/each}
+    </ul>
+{/if}
